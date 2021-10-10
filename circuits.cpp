@@ -8,37 +8,38 @@
 #define OLC_PGE_APPLICATION
 #include "olcPixelGameEngine.h"
 
+enum class State {PLACING_GATE, DRAGGING_CONNECTION, DRAGGING_GATE};
 class CircuitGUI : public olc::PixelGameEngine {
 	std::vector<std::shared_ptr<Component>> gates;
-	std::weak_ptr<Component> connectionSrc;
-	float totalTime = 0;
 	int size = 50;
 
-	bool isInGateMode = true;
+	std::weak_ptr<Component> clickedGate;
+	State state = State::PLACING_GATE;
 	int gateIndex = 0;
 	int inputIndex = 1;
 
-	std::weak_ptr<Component> checkCollision(int32_t mouseX, int32_t mouseY, int32_t size) {
+	 bool checkCollision(std::weak_ptr<Component> &outGate, int32_t mouseX, int32_t mouseY, int32_t size) {
 		for (std::shared_ptr<Component> &gate : gates) {
 			if (mouseX > gate->x && mouseX < gate->x + size && mouseY > gate->y && mouseY < gate->y + size) {
-				return gate;
+				outGate = gate;
+				return true;
 			}
 		}
 
-		return std::weak_ptr<Component>();
+		return false;
 	}
 
 	void handleUserInput() {
-		// Add gate to the pixel x,y when clicked on empty or save reference to gate if clicked on gate
+		// Add gate to the pixel x,y when clicking on an empty spot
 		if (GetMouse(0).bPressed) {
-			auto gate = checkCollision(GetMouseX(), GetMouseY(), size);
-			if (!gate.expired()) {
-				connectionSrc = gate;
-				isInGateMode = false;
-			}
-			else {
-				connectionSrc.reset();
-
+			if (checkCollision(clickedGate, GetMouseX(), GetMouseY(), size)) {
+				if (GetKey(olc::SHIFT).bHeld) {
+					state = State::DRAGGING_GATE;
+				}
+				else {
+					state = State::DRAGGING_CONNECTION;
+				}
+			} else {
 				int x = GetMouseX() - size / 2;
 				int y = GetMouseY() - size / 2;
 
@@ -73,38 +74,40 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		// Connect gate where mouse is
 		if (GetMouse(0).bReleased) {
-			if (auto ptr = connectionSrc.lock()) {
+			if (state == State::DRAGGING_CONNECTION) {
 				// See if released on a gate
-				if (auto gate = checkCollision(GetMouseX(), GetMouseY(), size).lock()) {
-					if (gate != ptr) {
-						std::cout << "Connected " << ptr->name << " to input " << inputIndex - 1 << " of " << gate->name << std::endl;
-						gate->connectInput(ptr, inputIndex - 1);
+				std::weak_ptr<Component> gate;
+				if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+					auto ptr = gate.lock();
+					auto clickedPtr = clickedGate.lock();
+					if (clickedPtr != ptr) {
+						std::cout << "Connected " << clickedPtr->name << " to input " << inputIndex - 1 << " of " << ptr->name << std::endl;
+						ptr->connectInput(clickedPtr, inputIndex - 1);
 					}
-				}
-				else {
-					connectionSrc.reset();
 				}
 			}
 
-			isInGateMode = true;
+			state = State::PLACING_GATE;
 		}
 
-		if (GetMouse(1).bPressed) {
-			if (auto gate = checkCollision(GetMouseX(), GetMouseY(), size).lock()) {
-				gate->output = !gate->output;
+		if (GetMouse(1).bPressed && state == State::PLACING_GATE) {
+			std::weak_ptr<Component> gate;
+			if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+				auto ptr = gate.lock();
+				ptr->output = !ptr->output;
 			}
 		}
 
 		// Remove gate when clicked on with middle mouse button
-		if (GetMouse(2).bPressed) {
-			connectionSrc.reset();
-			if (auto gate = checkCollision(GetMouseX(), GetMouseY(), size).lock()) {
-				gates.erase(std::find(gates.begin(), gates.end(), gate));
+		if (GetMouse(2).bPressed && state == State::PLACING_GATE) {
+			std::weak_ptr<Component> gate;
+			if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+				gates.erase(std::find(gates.begin(), gates.end(), gate.lock()));
 			}
 		}
 
 		// Change the chosen gate or chosen input when a number is pressed
-		if (isInGateMode) {
+		if (state == State::PLACING_GATE) {
 			if (GetKey(olc::K1).bPressed) gateIndex = 0;
 			if (GetKey(olc::K2).bPressed) gateIndex = 1;
 			if (GetKey(olc::K3).bPressed) gateIndex = 2;
@@ -112,9 +115,15 @@ class CircuitGUI : public olc::PixelGameEngine {
 			if (GetKey(olc::K5).bPressed) gateIndex = 4;
 			if (GetKey(olc::K6).bPressed) gateIndex = 5;
 		}
-		else {
+		else if (state == State::DRAGGING_CONNECTION) {
 			if (GetKey(olc::K1).bPressed) inputIndex = 1;
 			if (GetKey(olc::K2).bPressed) inputIndex = 2;
+		}
+
+		if (state == State::DRAGGING_GATE) {
+			auto ptr = clickedGate.lock();
+			ptr->x = GetMouseX() - size / 2;
+			ptr->y = GetMouseY() - size / 2;
 		}
 	}
 
@@ -161,42 +170,55 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 
 		// Draw current action string
-		std::string gateString = "Placing ";
-		if (isInGateMode) {
-			switch (gateIndex) {
-			case 0:
-				gateString += "Output";
+		std::string stateString;
+		switch (state) {
+			case State::PLACING_GATE: {
+				stateString = "Placing ";
+				switch (gateIndex) {
+				case 0:
+					stateString += "Output";
+					break;
+				case 1:
+					stateString += "AND";
+					break;
+				case 2:
+					stateString += "OR";
+					break;
+				case 3:
+					stateString += "XOR";
+					break;
+				case 4:
+					stateString += "NOT";
+					break;
+				case 5:
+					stateString += "Input";
+					break;
+				}
 				break;
-			case 1:
-				gateString += "AND";
+			}
+			case State::DRAGGING_CONNECTION: {
+				auto ptr = clickedGate.lock();
+				DrawLine(ptr->x + size / 2, ptr->y + size / 2, GetMouseX(), GetMouseY(), olc::BLACK);
+				stateString = "Connecting " + ptr->name + " and input " + std::to_string(inputIndex);
 				break;
-			case 2:
-				gateString += "OR";
+			}
+			case State::DRAGGING_GATE: {
+				auto ptr = clickedGate.lock();
+				stateString = "Moving " + ptr->name;
 				break;
-			case 3:
-				gateString += "XOR";
-				break;
-			case 4:
-				gateString += "NOT";
-				break;
-			case 5:
-				gateString += "Input";
+			}
+			default: {
+				stateString = "";
 				break;
 			}
 		}
-		else if (auto ptr = connectionSrc.lock()) {
-			DrawLine(ptr->x + size / 2, ptr->y + size / 2, GetMouseX(), GetMouseY(), olc::BLACK);
-			gateString += "connection between " + ptr->name + " and input " + std::to_string(inputIndex);
-		}
-		DrawString(5, 5, gateString, olc::BLACK, 2);
+		DrawString(5, 5, stateString, olc::BLACK, 2);
 
 		auto end = std::chrono::high_resolution_clock::now();
 		auto time = std::chrono::duration<double, std::milli>(end - start).count();
 
 		return time;
 	}
-
-
 
 public:
 	CircuitGUI() {
@@ -208,8 +230,6 @@ public:
 	}
 
 	bool OnUserUpdate(float fElapsedTime) override {
-		totalTime += fElapsedTime;
-
 		// User input
 		handleUserInput();
 
