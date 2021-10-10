@@ -1,6 +1,7 @@
 #include <chrono>
 #include <string>
 #include <vector>
+#include <format>
 
 #include "component.h"
 
@@ -17,15 +18,6 @@ class CircuitGUI : public olc::PixelGameEngine {
 	int gateIndex = 0;
 	int inputIndex = 1;
 
-public:
-	CircuitGUI() {
-		sAppName = "Circuit Sim";
-	}
-
-	bool OnUserCreate() override {
-		return true;
-	}
-
 	std::weak_ptr<Component> checkCollision(int32_t mouseX, int32_t mouseY, int32_t size) {
 		for (std::shared_ptr<Component> &gate : gates) {
 			if (mouseX > gate->x && mouseX < gate->x + size && mouseY > gate->y && mouseY < gate->y + size) {
@@ -36,9 +28,7 @@ public:
 		return std::weak_ptr<Component>();
 	}
 
-	bool OnUserUpdate(float fElapsedTime) override {
-		totalTime += fElapsedTime;
-
+	void handleUserInput() {
 		// Add gate to the pixel x,y when clicked on empty or save reference to gate if clicked on gate
 		if (GetMouse(0).bPressed) {
 			auto gate = checkCollision(GetMouseX(), GetMouseY(), size);
@@ -126,7 +116,10 @@ public:
 			if (GetKey(olc::K1).bPressed) inputIndex = 1;
 			if (GetKey(olc::K2).bPressed) inputIndex = 2;
 		}
+	}
 
+	double simulate() {
+		auto start = std::chrono::high_resolution_clock::now();
 
 		for (auto &gate : gates) {
 			gate->update();
@@ -136,6 +129,15 @@ public:
 			gate->output = gate->newOutput;
 		}
 
+		auto end = std::chrono::high_resolution_clock::now();
+		auto time = std::chrono::duration<double, std::milli>(end - start).count();
+
+		return time;
+	}
+
+	double draw() {
+		auto start = std::chrono::high_resolution_clock::now();
+
 		Clear(olc::WHITE);
 
 		// Draw all connections first
@@ -143,7 +145,7 @@ public:
 			for (auto &input : gate->inputs) {
 				if (auto input_ptr = input.lock()) {
 					olc::Pixel color = input_ptr->output ? olc::RED : olc::BLACK;
-					DrawLine(gate->x + size / 2, gate->y + size / 2, input_ptr->x + size / 2, input_ptr ->y + size / 2, color);
+					DrawLine(gate->x + size / 2, gate->y + size / 2, input_ptr->x + size / 2, input_ptr->y + size / 2, color);
 				}
 			}
 		}
@@ -154,7 +156,7 @@ public:
 			FillRect(c->x, c->y, size, size, color);
 
 			const std::string displayName = c->name.substr(0, c->name.find(" "));
-			int xOffset = (displayName.size()/2.0)*8;
+			int xOffset = (displayName.size() / 2.0) * 8;
 			DrawString(c->x + size / 2 - xOffset, c->y + size / 2 - 4, displayName, olc::BLACK);
 		}
 
@@ -182,11 +184,42 @@ public:
 				break;
 			}
 		}
-		else if (auto ptr = connectionSrc.lock()){
+		else if (auto ptr = connectionSrc.lock()) {
 			DrawLine(ptr->x + size / 2, ptr->y + size / 2, GetMouseX(), GetMouseY(), olc::BLACK);
 			gateString += "connection between " + ptr->name + " and input " + std::to_string(inputIndex);
 		}
 		DrawString(5, 5, gateString, olc::BLACK, 2);
+
+		auto end = std::chrono::high_resolution_clock::now();
+		auto time = std::chrono::duration<double, std::milli>(end - start).count();
+
+		return time;
+	}
+
+
+
+public:
+	CircuitGUI() {
+		sAppName = "Circuit Sim";
+	}
+
+	bool OnUserCreate() override {
+		return true;
+	}
+
+	bool OnUserUpdate(float fElapsedTime) override {
+		totalTime += fElapsedTime;
+
+		// User input
+		handleUserInput();
+
+		// Simulation update
+		double simulationTime = simulate();
+
+		// Drawing
+		double drawTime = draw();
+
+		sAppName = "Simulation: " + std::to_string(simulationTime) + "ms, Drawing : " + std::to_string(drawTime) + "ms\n";
 
 		return true;
 	}
