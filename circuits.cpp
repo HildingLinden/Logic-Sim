@@ -1,7 +1,7 @@
 #include <chrono>
 #include <string>
+#include <vector>
 
-#include "input.h"
 #include "component.h"
 
 #define OLC_PGE_APPLICATION
@@ -127,21 +127,13 @@ public:
 			if (GetKey(olc::K2).bPressed) inputIndex = 2;
 		}
 
-		// Update twice per second
-		if (totalTime > 0.5) {
-			auto start = std::chrono::high_resolution_clock::now();
 
-			for (auto &gate : gates) {
-				gate->update();
-			}
+		for (auto &gate : gates) {
+			gate->update();
+		}
 
-			for (auto &gate : gates) {
-				gate->output = gate->newOutput;
-			}
-
-			auto end = std::chrono::high_resolution_clock::now();
-			std::cout << "Update in " << std::chrono::duration<double, std::milli>(end - start).count() << "ms" << std::endl;
-			totalTime = 0;
+		for (auto &gate : gates) {
+			gate->output = gate->newOutput;
 		}
 
 		Clear(olc::WHITE);
