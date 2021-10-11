@@ -1,6 +1,8 @@
 #include "component.h"
 
-Component::Component(std::string name, int x, int y, int numInputs) : name(name), x(x), y(y) {
+uint64_t Component::GUID = 0;
+
+Component::Component(std::string name, int x, int y, int numInputs, uint64_t id) : name(name), x(x), y(y), id(id) {
 	inputs.resize(numInputs);
 }
 
@@ -14,12 +16,19 @@ void Component::connectInput(std::shared_ptr<Component> &component, int index) {
 }
 
 // Derived class constructors and methods
-AND::AND(std::string name, int32_t x, int32_t y) : Component(name, x, y, 2) {}
-XOR::XOR(std::string name, int32_t x, int32_t y) : Component(name, x, y, 2) {}
-OR::OR(std::string name, int32_t x, int32_t y) : Component(name, x, y, 2) {}
-Output::Output(std::string name, int32_t x, int32_t y) : Component(name, x, y, 1) {}
-NOT::NOT(std::string name, int32_t x, int32_t y) : Component(name, x, y, 1) { output = true; newOutput = true; }
-Input::Input(std::string name, int32_t x, int32_t y) : Component(name, x, y, 0) { output = true; newOutput = true;  }
+AND::AND(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
+XOR::XOR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
+OR::OR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
+Output::Output(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) {}
+NOT::NOT(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) { output = true; newOutput = true; }
+Input::Input(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 0, id) { output = true; newOutput = true; }
+
+GateType AND::getType() { return GateType::AND; }
+GateType XOR::getType() { return GateType::XOR; }
+GateType OR::getType() { return GateType::OR; }
+GateType Output::getType() { return GateType::OUTPUT; }
+GateType NOT::getType() { return GateType::NOT; }
+GateType Input::getType() { return GateType::INPUT; }
 
 void AND::update() {
 	bool input1 = false;

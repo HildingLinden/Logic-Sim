@@ -6,6 +6,7 @@ Click and drag on gate to connect it to another gate
 Hold shift, click and drag on a gate to move it  
 Right click on input gate to toggle it  
 Middle mouse click on a gate to delete it
+Hold ctrl and press s to save the project to a text file
 
 Number keys to change gate to be placed or to set the input index when connecting gates
 
