@@ -1,6 +1,6 @@
 #include "component.h"
 
-uint64_t Component::GUID = 0;
+uint64_t Component::GUID = 1;
 
 Component::Component(std::string name, int x, int y, int numInputs, uint64_t id) : name(name), x(x), y(y), id(id) {
 	inputs.resize(numInputs);

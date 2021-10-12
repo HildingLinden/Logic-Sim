@@ -10,14 +10,22 @@
 #include "olcPixelGameEngine.h"
 
 enum class State {PLACING_GATE, DRAGGING_CONNECTION, DRAGGING_GATE};
+
+struct CopiedGate {
+	std::shared_ptr<Component> gate;
+	std::vector<std::vector<int>> inputIndices;
+};
+
 class CircuitGUI : public olc::PixelGameEngine {
 	std::vector<std::shared_ptr<Component>> gates;
 	int size = 50;
 
 	std::weak_ptr<Component> clickedGate;
 	std::vector<std::weak_ptr<Component>> selectedGates;
-	int clickedX = 0;
-	int clickedY = 0;
+	// TODO: copied gates should be unique ptr
+	std::vector<CopiedGate> copiedGates;
+	int clickedX = 0, copiedX = 0;
+	int clickedY = 0, copiedY = 0;
 	State state = State::PLACING_GATE;
 	GateType selectedType = GateType::AND;
 	int inputIndex = 1;
@@ -31,7 +39,52 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 
 		return false;
-	}
+	 }
+
+	 std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y) {
+		 switch (type) {
+		 case GateType::OUTPUT:
+			 return std::make_shared<Output>("Output " + name, x, y);
+			 break;
+		 case GateType::AND:
+			 return std::make_shared<AND>("AND " + name, x, y);
+			 break;
+		 case GateType::OR:
+			 return std::make_shared<OR>("OR " + name, x, y);
+			 break;
+		 case GateType::XOR:
+			 return std::make_shared<XOR>("XOR " + name, x, y);
+			 break;
+		 case GateType::NOT:
+			 return std::make_shared<NOT>("NOT " + name, x, y);
+			 break;
+		 case GateType::INPUT:
+			 return std::make_shared<Input>("Input " + name, x, y);
+			 break;
+		 }
+	 }
+	 std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y, uint64_t id) {
+		 switch (type) {
+		 case GateType::OUTPUT:
+			 return std::make_shared<Output>("Output " + name, x, y, id);
+			 break;
+		 case GateType::AND:
+			 return std::make_shared<AND>("AND " + name, x, y, id);
+			 break;
+		 case GateType::OR:
+			 return std::make_shared<OR>("OR " + name, x, y, id);
+			 break;
+		 case GateType::XOR:
+			 return std::make_shared<XOR>("XOR " + name, x, y, id);
+			 break;
+		 case GateType::NOT:
+			 return std::make_shared<NOT>("NOT " + name, x, y, id);
+			 break;
+		 case GateType::INPUT:
+			 return std::make_shared<Input>("Input " + name, x, y, id);
+			 break;
+		 }
+	 }
 
 	 double saveProject() {
 		 auto start = std::chrono::high_resolution_clock::now();
@@ -39,7 +92,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		// Save all gates
 		for (auto &gate : gates) {
-			saveFile << gate->id << "," << static_cast<int>(gate->getType()) << "," << gate->x << "," << gate->y << "\n";
+			saveFile << gate->id << "," << static_cast<int>(gate->getType()) << "," << gate->output  << "," << gate->x << "," << gate->y << "\n";
 		}
 
 		saveFile << "-\n";
@@ -89,32 +142,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 				int x = GetMouseX() - size / 2;
 				int y = GetMouseY() - size / 2;
 
-				switch (selectedType) {
-				case GateType::OUTPUT:
-					gates.push_back(std::make_shared<Output>("Output test", x, y));
-					//std::cout << "Add Output at " << x << " " << y << ", with id " << gates.back()->id << std::endl;
-					break;
-				case GateType::AND:
-					gates.push_back(std::make_shared<AND>("AND test", x, y));
-					//std::cout << "Add AND at " << x << " " << y << ", with id " << gates.back()->id << std::endl;
-					break;
-				case GateType::OR:
-					gates.push_back(std::make_shared<OR>("OR test", x, y));
-					//std::cout << "Add OR at " << x << " " << y << ", with id " << gates.back()->id << std::endl;
-					break;
-				case GateType::XOR:
-					gates.push_back(std::make_shared<XOR>("XOR test", x, y));
-					//std::cout << "Add XOR at " << x << " " << y << ", with id " << gates.back()->id << std::endl;
-					break;
-				case GateType::NOT:
-					gates.push_back(std::make_shared<NOT>("NOT test", x, y));
-					//std::cout << "Add NOT at " << x << " " << y << ", with id " << gates.back()->id << std::endl;
-					break;
-				case GateType::INPUT:
-					gates.push_back(std::make_shared<Input>("Input test", x, y));
-					//std::cout << "Add Input at " << x << " " << y << ", with id " << gates.back()->id << std::endl;
-					break;
-				}
+				gates.push_back(createComponent(selectedType, "Test", x, y));
 			}
 		}
 
@@ -148,13 +176,99 @@ class CircuitGUI : public olc::PixelGameEngine {
 		if (GetMouse(2).bPressed && state == State::PLACING_GATE) {
 			std::weak_ptr<Component> gate;
 			if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+				// Remove it from gates and selected gates
 				gates.erase(std::find(gates.begin(), gates.end(), gate.lock()));
+				for (auto it = selectedGates.begin(); it != selectedGates.end(); it++) {
+					if ((*it).expired()) {
+						selectedGates.erase(it);
+						break;
+					}
+				}
 			}
 		}
 
 		if (GetKey(olc::S).bPressed && GetKey(olc::CTRL).bHeld) {
 			double time = saveProject();
 			std::cout << "Saved project in " << time << "ms\n";
+		}
+
+		if (GetKey(olc::C).bPressed && GetKey(olc::CTRL).bHeld) {
+			copiedX = GetMouseX();
+			copiedY = GetMouseY();
+			if (!selectedGates.empty()) copiedGates.clear();
+			for (auto &selectedGate : selectedGates) {
+				if (!selectedGate.expired()) {
+					auto selectedPtr = selectedGate.lock();
+
+					// Create a new instance of the component
+					copiedGates.push_back({ createComponent(selectedPtr->getType(), "Tmp", selectedPtr->x, selectedPtr->y, 0) });
+					copiedGates.back().gate->inputs = selectedPtr->inputs;
+					copiedGates.back().gate->output = selectedPtr->output;
+					copiedGates.back().inputIndices.resize(copiedGates.back().gate->inputs.size());
+				}
+			}
+
+			// For each gate
+			for (auto &copiedGate : copiedGates) {
+				int inputIndex = 0;
+
+				// For each input
+				for (auto &inputGate : copiedGate.gate->inputs) {
+					if (!inputGate.expired()) {
+						auto inputPtr = inputGate.lock();
+
+						// If the input is also selected
+						if (inputPtr->selected) {
+							int inputSrcIndex = 0;
+
+							// Find the input in the selectedGates vector and store the index in the CopiedGate struct
+							for (auto &src : selectedGates) {
+								if (!src.expired()) {
+									if (src.lock()->id == inputPtr->id) {
+										copiedGate.inputIndices[inputIndex].push_back(inputSrcIndex);
+										break;
+									}
+								}
+								inputSrcIndex++;
+							}
+						}
+					}
+					inputIndex++;
+				}
+			}
+		}
+
+		if (GetKey(olc::V).bPressed && GetKey(olc::CTRL).bHeld) {
+			int deltaX = GetMouseX() - copiedX;
+			int deltaY = GetMouseY() - copiedY;
+
+			// Unselect all selected gates
+			for (auto &gate : selectedGates) {
+				if (!gate.expired()) {
+					gate.lock()->selected = false;
+				}
+			}
+			selectedGates.clear();
+
+			int prevGateCount = gates.size();
+			// Create of a new instance of the component 
+			for (auto &gate : copiedGates) {
+				gates.push_back(createComponent(gate.gate->getType(), "Copied test", gate.gate->x + deltaX, gate.gate->y + deltaY));
+				gates.back()->output = gate.gate->output;
+
+				// Select each new instance of the gates
+				gates.back()->selected = true;
+				selectedGates.push_back(gates.back());
+			}
+
+			// Connect the copied components to the inputs that were also copied
+			for (int j = 0; j < copiedGates.size(); j++) {
+				for (int i = 0; i < copiedGates[j].inputIndices.size(); i++) {
+					for (auto &inputSrcIndex : copiedGates[j].inputIndices[i]) {
+						gates[prevGateCount + j]->connectInput(gates[prevGateCount + inputSrcIndex], i);
+					}
+				}
+			}
 		}
 
 		// Change the chosen gate or chosen input when a number is pressed
@@ -290,6 +404,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 		auto start = std::chrono::high_resolution_clock::now();
 
 		std::ifstream saveFile("save.txt");
+		if (!saveFile.is_open()) return 0;
+
 		std::array<char, 51> buffer;
 		std::fill(buffer.begin(), buffer.end(), 0);
 
@@ -311,35 +427,18 @@ class CircuitGUI : public olc::PixelGameEngine {
 						result.push_back(token);
 					}
 
-					if (result.size() > 4) {
+					if (result.size() > 5) {
 						std::cout << "Wrong structure in save file\n";
 					}
 					else {
 						uint64_t id = std::stoull(result[0]);
 						GateType type = static_cast<GateType>(std::stoi(result[1]));
-						int x = std::stoi(result[2]);
-						int y = std::stoi(result[3]);
+						bool output = std::stoi(result[2]);
+						int x = std::stoi(result[3]);
+						int y = std::stoi(result[4]);
 
-						switch (type) {
-						case GateType::OUTPUT:
-							gates.push_back(std::make_shared<Output>("Output test", x, y, id));
-							break;
-						case GateType::AND:
-							gates.push_back(std::make_shared<AND>("AND test", x, y, id));
-							break;
-						case GateType::OR:
-							gates.push_back(std::make_shared<OR>("OR test", x, y, id));
-							break;
-						case GateType::XOR:
-							gates.push_back(std::make_shared<XOR>("XOR test", x, y, id));
-							break;
-						case GateType::NOT:
-							gates.push_back(std::make_shared<NOT>("NOT test", x, y, id));
-							break;
-						case GateType::INPUT:
-							gates.push_back(std::make_shared<Input>("Input test", x, y, id));
-							break;
-						}
+						gates.push_back(createComponent(type, "Test", x, y, id));
+						gates.back()->output = output;
 					}
 				}
 			}
@@ -431,7 +530,7 @@ public:
 // TODO: Use coordinates as id?
 int main() {
 	CircuitGUI gui;
-	if (gui.Construct(1300, 1300, 1, 1)) {
+	if (gui.Construct(5000, 1300, 1, 1)) {
 		gui.Start();
 	}
 	return 0;
