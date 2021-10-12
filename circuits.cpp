@@ -271,6 +271,18 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 		}
 
+		if (GetKey(olc::DEL).bPressed) {
+			for (auto it = gates.begin(); it != gates.end();) {
+				if ((*it)->selected) {
+					it = gates.erase(it);
+				}
+				else {
+					it++;
+				}
+			}
+			selectedGates.clear();
+		}
+
 		// Change the chosen gate or chosen input when a number is pressed
 		if (state == State::PLACING_GATE) {
 			if (GetKey(olc::K1).bPressed) selectedType = GateType::OUTPUT;
@@ -530,7 +542,7 @@ public:
 // TODO: Use coordinates as id?
 int main() {
 	CircuitGUI gui;
-	if (gui.Construct(5000, 1300, 1, 1)) {
+	if (gui.Construct(1300, 1300, 1, 1)) {
 		gui.Start();
 	}
 	return 0;
