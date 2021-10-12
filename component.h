@@ -14,6 +14,7 @@ public:
 	int32_t y;
 	bool output = false;
 	bool newOutput = false;
+	bool selected = false;
 	std::vector<std::weak_ptr<Component>> inputs;
 	const uint64_t id;
 	static uint64_t GUID;

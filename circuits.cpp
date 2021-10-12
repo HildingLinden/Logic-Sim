@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <format>
+#include <numeric>
 
 #include "component.h"
 
@@ -14,6 +15,9 @@ class CircuitGUI : public olc::PixelGameEngine {
 	int size = 50;
 
 	std::weak_ptr<Component> clickedGate;
+	std::vector<std::weak_ptr<Component>> selectedGates;
+	int clickedX = 0;
+	int clickedY = 0;
 	State state = State::PLACING_GATE;
 	GateType selectedType = GateType::AND;
 	int inputIndex = 1;
@@ -58,6 +62,25 @@ class CircuitGUI : public olc::PixelGameEngine {
 			if (checkCollision(clickedGate, GetMouseX(), GetMouseY(), size)) {
 				if (GetKey(olc::SHIFT).bHeld) {
 					state = State::DRAGGING_GATE;
+					clickedX = GetMouseX();
+					clickedY = GetMouseY();
+				}
+				else if (GetKey(olc::CTRL).bHeld) {
+					auto ptr = clickedGate.lock();
+					if (!ptr->selected) {
+						selectedGates.push_back(clickedGate);
+						ptr->selected = true;
+					}
+					else {
+						for (auto it = selectedGates.begin(); it != selectedGates.end(); it++) {
+							if ((*it).lock()->id == ptr->id) {
+								selectedGates.erase(it);
+								break;
+							}
+						}
+						ptr->selected = false;
+					}
+
 				}
 				else {
 					state = State::DRAGGING_CONNECTION;
@@ -129,7 +152,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 		}
 
-		if (GetKey(olc::CTRL).bHeld && GetKey(olc::S).bPressed) {
+		if (GetKey(olc::S).bPressed && GetKey(olc::CTRL).bHeld) {
 			double time = saveProject();
 			std::cout << "Saved project in " << time << "ms\n";
 		}
@@ -149,9 +172,24 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 
 		if (state == State::DRAGGING_GATE) {
-			auto ptr = clickedGate.lock();
-			ptr->x = GetMouseX() - size / 2;
-			ptr->y = GetMouseY() - size / 2;
+			int deltaX = GetMouseX() - clickedX;
+			int deltaY = GetMouseY() - clickedY;
+
+			if (clickedGate.lock()->selected) {
+				for (auto &gate : selectedGates) {
+					auto ptr = gate.lock();
+					ptr->x += deltaX;
+					ptr->y += deltaY;
+				}
+			}
+			else {
+				auto ptr = clickedGate.lock();
+				ptr->x += deltaX;
+				ptr->y += deltaY;
+			}
+
+			clickedX = GetMouseX();
+			clickedY = GetMouseY();
 		}
 	}
 
@@ -189,6 +227,10 @@ class CircuitGUI : public olc::PixelGameEngine {
 		for (auto &c : gates) {
 			olc::Pixel color = c->output ? olc::RED : olc::GREY;
 			FillRect(c->x, c->y, size, size, color);
+			if (c->selected) {
+				DrawRect(c->x, c->y, size, size, olc::BLACK);
+				DrawRect(c->x+1, c->y+1, size-2, size-2, olc::BLACK);
+			}
 
 			const std::string displayName = c->name.substr(0, c->name.find(" "));
 			int xOffset = (displayName.size() / 2.0) * 8;
