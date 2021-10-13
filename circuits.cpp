@@ -367,8 +367,10 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		if (GetKey(olc::A).bPressed && GetKey(olc::CTRL).bHeld) {
 			for (auto &gate : gates) {
-				selectedGates.push_back(gate);
-				gate->selected = true;
+				if (!gate->selected) {
+					selectedGates.push_back(gate);
+					gate->selected = true;
+				}
 			}
 		}
 
