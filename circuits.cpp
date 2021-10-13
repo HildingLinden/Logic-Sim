@@ -27,8 +27,10 @@ class CircuitGUI : public olc::PixelGameEngine {
 	int clickedX = 0, copiedX = 0;
 	int clickedY = 0, copiedY = 0;
 	State state = State::PLACING_GATE;
-	GateType selectedType = GateType::AND;
+	GateType selectedType = GateType::OUTPUT;
 	int inputIndex = 1;
+	int worldOffsetX = 0;
+	int worldOffsetY = 0;
 
 	 bool checkCollision(std::weak_ptr<Component> &outGate, int32_t mouseX, int32_t mouseY, int32_t size) {
 		for (std::shared_ptr<Component> &gate : gates) {
@@ -40,6 +42,15 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		return false;
 	 }
+
+	 int getWorldMouseX() {
+		 return GetMouseX() + worldOffsetX;
+	 }
+
+	 int getWorldMouseY() {
+		 return GetMouseY() + worldOffsetY;
+	 }
+
 
 	 std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y) {
 		 switch (type) {
@@ -112,10 +123,10 @@ class CircuitGUI : public olc::PixelGameEngine {
 	void handleUserInput() {
 		// Add gate to the pixel x,y when clicking on an empty spot
 		if (GetMouse(0).bPressed) {
-			clickedX = GetMouseX();
-			clickedY = GetMouseY();
+			clickedX = getWorldMouseX();
+			clickedY = getWorldMouseY();
 
-			if (checkCollision(clickedGate, GetMouseX(), GetMouseY(), size)) {
+			if (checkCollision(clickedGate, getWorldMouseX(), getWorldMouseY(), size)) {
 				if (GetKey(olc::SHIFT).bHeld) {
 					state = State::DRAGGING_GATE;
 				}
@@ -144,12 +155,17 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		if (GetMouse(0).bHeld) {
 			if (state == State::PLACING_GATE) {
-				int x = GetMouseX();
-				int y = GetMouseY();
+				int x = getWorldMouseX();
+				int y = getWorldMouseY();
 				int deltaX = x - clickedX;
 				int deltaY = y - clickedY;
 
-				if (std::abs(deltaX) > 5 || std::abs(deltaY) > 5) {
+				if (GetKey(olc::SHIFT).bHeld) {
+					worldOffsetX -= deltaX;
+					worldOffsetY -= deltaY;
+					clickedX = getWorldMouseX();
+					clickedY = getWorldMouseY();
+				} else if (std::abs(deltaX) > 5 || std::abs(deltaY) > 5) {
 					state = State::SELECTING_AREA;
 				}
 			}
@@ -160,7 +176,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 			if (state == State::DRAGGING_CONNECTION) {
 				// See if released on a gate
 				std::weak_ptr<Component> gate;
-				if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+				if (checkCollision(gate, getWorldMouseX(), getWorldMouseY(), size)) {
 					auto ptr = gate.lock();
 					auto clickedPtr = clickedGate.lock();
 					if (clickedPtr != ptr) {
@@ -169,8 +185,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 					}
 				}
 			}
-			else if (state == State::PLACING_GATE && !GetKey(olc::CTRL).bHeld) {
-				gates.push_back(createComponent(selectedType, "Test", GetMouseX() - size / 2, GetMouseY() - size / 2));
+			else if (state == State::PLACING_GATE && !GetKey(olc::CTRL).bHeld && !GetKey(olc::SHIFT).bHeld) {
+				gates.push_back(createComponent(selectedType, "Test", getWorldMouseX() - size / 2, getWorldMouseY() - size / 2));
 			}
 			else if (state == State::SELECTING_AREA) {
 				if (!GetKey(olc::CTRL).bHeld) {
@@ -181,8 +197,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 					}
 					selectedGates.clear();
 				}
-				int x = GetMouseX();
-				int y = GetMouseY();
+				int x = getWorldMouseX();
+				int y = getWorldMouseY();
 				int deltaX = x - clickedX;
 				int deltaY = y - clickedY;
 				
@@ -211,7 +227,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		if (GetMouse(1).bPressed && state == State::PLACING_GATE) {
 			std::weak_ptr<Component> gate;
-			if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+			if (checkCollision(gate, getWorldMouseX(), getWorldMouseY(), size)) {
 				auto ptr = gate.lock();
 				ptr->output = !ptr->output;
 			}
@@ -220,7 +236,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 		// Remove gate when clicked on with middle mouse button
 		if (GetMouse(2).bPressed && state == State::PLACING_GATE) {
 			std::weak_ptr<Component> gate;
-			if (checkCollision(gate, GetMouseX(), GetMouseY(), size)) {
+			if (checkCollision(gate, getWorldMouseX(), getWorldMouseY(), size)) {
 				// Remove it from gates and selected gates
 				gates.erase(std::find(gates.begin(), gates.end(), gate.lock()));
 				for (auto it = selectedGates.begin(); it != selectedGates.end(); it++) {
@@ -230,6 +246,11 @@ class CircuitGUI : public olc::PixelGameEngine {
 					}
 				}
 			}
+		}
+
+		if (GetKey(olc::K0).bPressed && GetKey(olc::SHIFT).bHeld) {
+			worldOffsetX = 0;
+			worldOffsetY = 0;
 		}
 
 		if (GetKey(olc::A).bPressed && GetKey(olc::CTRL).bHeld) {
@@ -245,8 +266,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 
 		if (GetKey(olc::C).bPressed && GetKey(olc::CTRL).bHeld) {
-			copiedX = GetMouseX();
-			copiedY = GetMouseY();
+			copiedX = getWorldMouseX();
+			copiedY = getWorldMouseY();
 			if (!selectedGates.empty()) copiedGates.clear();
 			for (auto &selectedGate : selectedGates) {
 				if (!selectedGate.expired()) {
@@ -291,8 +312,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 
 		if (GetKey(olc::V).bPressed && GetKey(olc::CTRL).bHeld) {
-			int deltaX = GetMouseX() - copiedX;
-			int deltaY = GetMouseY() - copiedY;
+			int deltaX = getWorldMouseX() - copiedX;
+			int deltaY = getWorldMouseY() - copiedY;
 
 			// Unselect all selected gates
 			for (auto &gate : selectedGates) {
@@ -349,8 +370,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 			if (GetKey(olc::K2).bPressed) inputIndex = 2;
 		}
 		else if (state == State::DRAGGING_GATE) {
-			int deltaX = GetMouseX() - clickedX;
-			int deltaY = GetMouseY() - clickedY;
+			int deltaX = getWorldMouseX() - clickedX;
+			int deltaY = getWorldMouseY() - clickedY;
 
 			if (clickedGate.lock()->selected) {
 				for (auto &gate : selectedGates) {
@@ -365,20 +386,22 @@ class CircuitGUI : public olc::PixelGameEngine {
 				ptr->y += deltaY;
 			}
 
-			clickedX = GetMouseX();
-			clickedY = GetMouseY();
+			clickedX = getWorldMouseX();
+			clickedY = getWorldMouseY();
 		}
 	}
 
-	double simulate() {
+	double simulate(int steps) {
 		auto start = std::chrono::high_resolution_clock::now();
 
-		for (auto &gate : gates) {
-			gate->update();
-		}
+		for (int i = 0; i < steps; i++) {
+			for (auto &gate : gates) {
+				gate->update();
+			}
 
-		for (auto &gate : gates) {
-			gate->output = gate->newOutput;
+			for (auto &gate : gates) {
+				gate->output = gate->newOutput;
+			}
 		}
 
 		auto end = std::chrono::high_resolution_clock::now();
@@ -394,24 +417,43 @@ class CircuitGUI : public olc::PixelGameEngine {
 		for (auto &gate : gates) {
 			for (auto &input : gate->inputs) {
 				if (auto input_ptr = input.lock()) {
+					// CUll lines that are not seen
+					int dstMiddleX = gate->x - worldOffsetX + size / 2;
+					int dstMiddleY = gate->y - worldOffsetY + size / 2;
+					int srcMiddleX = input_ptr->x - worldOffsetX + size / 2;
+					int srcMiddleY = input_ptr->y - worldOffsetY + size / 2;
+					int width = GetDrawTargetWidth();
+					int height = GetDrawTargetHeight();
+
+					if ((dstMiddleX < 0 && srcMiddleX < 0) ||
+						(dstMiddleY < 0 && srcMiddleY < 0) ||
+						(dstMiddleX > width && srcMiddleX > width) ||
+						(dstMiddleY > height && srcMiddleY > height)
+					) continue;
+
 					olc::Pixel color = input_ptr->output ? olc::RED : olc::BLACK;
-					DrawLine(gate->x + size / 2, gate->y + size / 2, input_ptr->x + size / 2, input_ptr->y + size / 2, color);
+					DrawLine(dstMiddleX, dstMiddleY, srcMiddleX, srcMiddleY, color);
 				}
 			}
 		}
 
 		// Then draw all gates with the first part of their name on them
 		for (auto &c : gates) {
+			int x = c->x - worldOffsetX;
+			int y = c->y - worldOffsetY;
+
+			if (x + size < 0 || x > GetDrawTargetWidth() || y + size < 0 || y > GetDrawTargetHeight()) continue;
+
 			olc::Pixel color = c->output ? olc::RED : olc::GREY;
-			FillRect(c->x, c->y, size, size, color);
+			FillRect(x, y, size, size, color);
 			if (c->selected) {
-				DrawRect(c->x, c->y, size, size, olc::BLACK);
-				DrawRect(c->x+1, c->y+1, size-2, size-2, olc::BLACK);
+				DrawRect(x, y, size, size, olc::BLACK);
+				DrawRect(x+1, y+1, size-2, size-2, olc::BLACK);
 			}
 
 			const std::string displayName = c->name.substr(0, c->name.find(" "));
 			int xOffset = (displayName.size() / 2.0) * 8;
-			DrawString(c->x + size / 2 - xOffset, c->y + size / 2 - 4, displayName, olc::BLACK);
+			DrawString(x + size / 2 - xOffset, y + size / 2 - 4, displayName, olc::BLACK);
 		}
 
 		// Draw current action string
@@ -443,7 +485,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 			case State::DRAGGING_CONNECTION: {
 				auto ptr = clickedGate.lock();
-				DrawLine(ptr->x + size / 2, ptr->y + size / 2, GetMouseX(), GetMouseY(), olc::BLACK);
+				DrawLine(ptr->x - worldOffsetX + size / 2, ptr->y - worldOffsetY + size / 2, GetMouseX(), GetMouseY(), olc::BLACK);
 				stateString = "Connecting " + ptr->name + " and input " + std::to_string(inputIndex);
 				break;
 			}
@@ -455,11 +497,13 @@ class CircuitGUI : public olc::PixelGameEngine {
 			case State::SELECTING_AREA: {
 				int x = GetMouseX();
 				int y = GetMouseY();
+				int worldClickedX = clickedX - worldOffsetX;
+				int worldClickedY = clickedY - worldOffsetY;
 
-				DrawLine(clickedX, clickedY, x, clickedY, olc::BLACK);
-				DrawLine(clickedX, clickedY, clickedX, y, olc::BLACK);
-				DrawLine(x, clickedY, x, y, olc::BLACK);
-				DrawLine(clickedX, y, x, y, olc::BLACK);
+				DrawLine(worldClickedX, worldClickedY, x, worldClickedY, olc::BLACK);
+				DrawLine(worldClickedX, worldClickedY, worldClickedX, y, olc::BLACK);
+				DrawLine(x, worldClickedY, x, y, olc::BLACK);
+				DrawLine(worldClickedX, y, x, y, olc::BLACK);
 
 				break;
 			}
@@ -589,13 +633,14 @@ public:
 		handleUserInput();
 
 		// Simulation update
-		double simulationTime = simulate();
+		double simulationTime = simulate(100);
 
 		// Drawing
 		double drawTime = draw();
 
 		sAppName = "Simulation: " + std::to_string(simulationTime) + "ms, Drawing : " + std::to_string(drawTime) + "ms\n";
 
+		FillRect(-100, -100, 50, 50, olc::GREY);
 		return true;
 	}
 };
