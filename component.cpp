@@ -19,16 +19,18 @@ void Component::connectInput(std::shared_ptr<Component> &component, int index) {
 AND::AND(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
 XOR::XOR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
 OR::OR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
-Output::Output(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) {}
+WIRE::WIRE(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) {}
 NOT::NOT(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) { output = true; newOutput = true; }
 Input::Input(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 0, id) { output = true; newOutput = true; }
+TIMER::TIMER(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 0, id) {}
 
 GateType AND::getType() { return GateType::AND; }
 GateType XOR::getType() { return GateType::XOR; }
 GateType OR::getType() { return GateType::OR; }
-GateType Output::getType() { return GateType::OUTPUT; }
+GateType WIRE::getType() { return GateType::WIRE; }
 GateType NOT::getType() { return GateType::NOT; }
 GateType Input::getType() { return GateType::INPUT; }
+GateType TIMER::getType() { return GateType::TIMER; }
 
 void AND::update() {
 	bool input1 = false;
@@ -72,7 +74,7 @@ void OR::update() {
 	newOutput = input1 | input2;
 }
 
-void Output::update() {
+void WIRE::update() {
 	bool input1 = false;
 
 	if (auto ptr = inputs[0].lock()) {
@@ -94,4 +96,15 @@ void NOT::update() {
 
 void Input::update() {
 	newOutput = output;
+}
+
+void TIMER::update() {
+	if (counter == 20) {
+		newOutput = true;
+		counter = 0;
+	}
+	else {
+		newOutput = false;
+		counter++;
+	}
 }

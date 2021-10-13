@@ -5,7 +5,7 @@
 #include <memory>
 #include <string_view>
 
-enum class GateType { AND, XOR, OR, OUTPUT, NOT, INPUT };
+enum class GateType { AND, XOR, OR, WIRE, NOT, INPUT, TIMER };
 // Base class
 class Component {
 public:
@@ -47,11 +47,11 @@ public:
 	OR(std::string name_, int32_t x = 0, int32_t y = 0, uint64_t id = Component::GUID++);
 };
 
-class Output : public Component {
+class WIRE : public Component {
 	void update() override;
 	GateType getType() override;
 public:
-	Output(std::string name_, int32_t x = 0, int32_t y = 0, uint64_t id = Component::GUID++);
+	WIRE(std::string name_, int32_t x = 0, int32_t y = 0, uint64_t id = Component::GUID++);
 };
 
 class NOT : public Component {
@@ -66,4 +66,12 @@ class Input : public Component {
 	GateType getType() override;
 public:
 	Input(std::string name_, int32_t x = 0, int32_t y = 0, uint64_t id = Component::GUID++);
+};
+
+class TIMER : public Component {
+	int counter = 0;
+	void update() override;
+	GateType getType() override;
+public:
+	TIMER(std::string name_, int32_t x = 0, int32_t y = 0, uint64_t id = Component::GUID++);
 };

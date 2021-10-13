@@ -16,6 +16,8 @@ Hold ctrl and press c to copy selected gates, press v to paste the selected gate
 Hold ctrl and press a to select all gates  
 Press del to delete all selected gates  
 Number keys to change gate to be placed or to set the input index when connecting gates
+Press right arrow to step the simulation once
+Press space to toggle between pausing and running the simulation
 
 Gates currently implemented are:
 * Output

@@ -10,6 +10,7 @@
 #include "olcPixelGameEngine.h"
 
 enum class State {PLACING_GATE, DRAGGING_CONNECTION, DRAGGING_GATE, SELECTING_AREA};
+enum class SimulationState {PAUSED, STEP, RUNNING};
 
 struct CopiedGate {
 	std::shared_ptr<Component> gate;
@@ -27,35 +28,135 @@ class CircuitGUI : public olc::PixelGameEngine {
 	int clickedX = 0, copiedX = 0;
 	int clickedY = 0, copiedY = 0;
 	State state = State::PLACING_GATE;
-	GateType selectedType = GateType::OUTPUT;
+	GateType selectedType = GateType::WIRE;
 	int inputIndex = 1;
 	int worldOffsetX = 0;
 	int worldOffsetY = 0;
+	SimulationState simulationState = SimulationState::PAUSED;
+	int speed = 1000;
 
-	 bool checkCollision(std::weak_ptr<Component> &outGate, int32_t mouseX, int32_t mouseY, int32_t size) {
-		for (std::shared_ptr<Component> &gate : gates) {
-			if (mouseX > gate->x && mouseX < gate->x + size && mouseY > gate->y && mouseY < gate->y + size) {
-				outGate = gate;
-				return true;
+	/*
+	 * Check the user input and perform the actions bound to the inputs
+	*/
+	double saveProject() {
+		auto start = std::chrono::high_resolution_clock::now();
+		std::ofstream saveFile("save.txt");
+
+		// Save all gates
+		for (auto &gate : gates) {
+			saveFile << gate->id << "," << static_cast<int>(gate->getType()) << "," << gate->output << "," << gate->x << "," << gate->y << "\n";
+		}
+
+		saveFile << "-\n";
+
+		// Save all connections
+		for (auto &gate : gates) {
+			for (int i = 0; i < gate->inputs.size(); i++) {
+				if (auto input_ptr = gate->inputs[i].lock()) {
+					saveFile << gate->id << "," << input_ptr->id << "," << i << "\n";
+				}
 			}
 		}
 
-		return false;
-	 }
+		auto end = std::chrono::high_resolution_clock::now();
+		return std::chrono::duration<double, std::milli>(end - start).count();
+	}
+	double loadProject() {
+		auto start = std::chrono::high_resolution_clock::now();
 
-	 int getWorldMouseX() {
-		 return GetMouseX() + worldOffsetX;
-	 }
+		std::ifstream saveFile("save.txt");
+		if (!saveFile.is_open()) return 0;
 
-	 int getWorldMouseY() {
-		 return GetMouseY() + worldOffsetY;
-	 }
+		std::array<char, 51> buffer;
+		std::fill(buffer.begin(), buffer.end(), 0);
 
+		bool gatesDone = false;
+		std::string line;
+		while (std::getline(saveFile, line)) {
+			if (!gatesDone) {
+				if (line.front() == '-') {
+					gatesDone = true;
+					if (!gates.empty()) {
+						Component::GUID = gates.back()->id + 1;
+					}
+				}
+				else {
+					std::stringstream ss(line);
+					std::string token;
+					std::vector<std::string> result;
+					while (std::getline(ss, token, ',')) {
+						result.push_back(token);
+					}
 
-	 std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y) {
+					if (result.size() > 5) {
+						std::cout << "Wrong structure in save file\n";
+					}
+					else {
+						uint64_t id = std::stoull(result[0]);
+						GateType type = static_cast<GateType>(std::stoi(result[1]));
+						bool output = std::stoi(result[2]);
+						int x = std::stoi(result[3]);
+						int y = std::stoi(result[4]);
+
+						gates.push_back(createComponent(type, "Test", x, y, id));
+						gates.back()->output = output;
+					}
+				}
+			}
+			else {
+				std::stringstream ss(line);
+				std::string token;
+				std::vector<std::string> result;
+				while (std::getline(ss, token, ',')) {
+					result.push_back(token);
+				}
+
+				if (result.size() > 3) {
+					std::cout << "Wrong structure in save file\n";
+				}
+				else {
+					uint64_t dstId = std::stoull(result[0]);
+					uint64_t srcId = std::stoull(result[1]);
+					int inputIndex = std::stoi(result[2]);
+
+					// TODO: Save srcGate since multiple inputs to the same 
+					// TODO: Search for the gates with binary search
+					std::shared_ptr<Component> srcGate;
+					std::shared_ptr<Component> dstGate;
+					bool srcFound = false, dstFound = false;
+					for (auto it = gates.begin(); it != gates.end() && !(srcFound && dstFound); it++) {
+						if (!srcFound) {
+							if ((*it)->id == srcId) {
+								srcGate = *it;
+								srcFound = true;
+							}
+						}
+						if (!dstFound) {
+							if ((*it)->id == dstId) {
+								dstGate = *it;
+								dstFound = true;
+							}
+						}
+					}
+
+					if (!srcFound || !dstFound) {
+						std::cout << "Gate not found when loading connections\n";
+					}
+					else {
+						dstGate->connectInput(srcGate, inputIndex);
+					}
+				}
+			}
+		}
+
+		auto end = std::chrono::high_resolution_clock::now();
+		return std::chrono::duration<double, std::milli>(end - start).count();
+	}
+
+	std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y) {
 		 switch (type) {
-		 case GateType::OUTPUT:
-			 return std::make_shared<Output>("Output " + name, x, y);
+		 case GateType::WIRE:
+			 return std::make_shared<WIRE>("Wire " + name, x, y);
 			 break;
 		 case GateType::AND:
 			 return std::make_shared<AND>("AND " + name, x, y);
@@ -72,12 +173,15 @@ class CircuitGUI : public olc::PixelGameEngine {
 		 case GateType::INPUT:
 			 return std::make_shared<Input>("Input " + name, x, y);
 			 break;
+		 case GateType::TIMER:
+			 return std::make_shared<TIMER>("Timer " + name, x, y);
+			 break;
 		 }
 	 }
-	 std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y, uint64_t id) {
+	std::shared_ptr<Component> createComponent(GateType type, std::string name, int x, int y, uint64_t id) {
 		 switch (type) {
-		 case GateType::OUTPUT:
-			 return std::make_shared<Output>("Output " + name, x, y, id);
+		 case GateType::WIRE:
+			 return std::make_shared<WIRE>("Wire " + name, x, y, id);
 			 break;
 		 case GateType::AND:
 			 return std::make_shared<AND>("AND " + name, x, y, id);
@@ -94,32 +198,30 @@ class CircuitGUI : public olc::PixelGameEngine {
 		 case GateType::INPUT:
 			 return std::make_shared<Input>("Input " + name, x, y, id);
 			 break;
+		 case GateType::TIMER:
+			 return std::make_shared<TIMER>("Timer " + name, x, y, id);
+			 break;
 		 }
 	 }
 
-	 double saveProject() {
-		 auto start = std::chrono::high_resolution_clock::now();
-		 std::ofstream saveFile("save.txt");
-
-		// Save all gates
-		for (auto &gate : gates) {
-			saveFile << gate->id << "," << static_cast<int>(gate->getType()) << "," << gate->output  << "," << gate->x << "," << gate->y << "\n";
-		}
-
-		saveFile << "-\n";
-
-		// Save all connections
-		for (auto &gate : gates) {
-			for (int i = 0; i < gate->inputs.size(); i++) {
-				if (auto input_ptr = gate->inputs[i].lock()) {
-					saveFile << gate->id << "," << input_ptr->id << "," << i << "\n";
-				}
+	bool checkCollision(std::weak_ptr<Component> &outGate, int32_t mouseX, int32_t mouseY, int32_t size) {
+		for (std::shared_ptr<Component> &gate : gates) {
+			if (mouseX > gate->x && mouseX < gate->x + size && mouseY > gate->y && mouseY < gate->y + size) {
+				outGate = gate;
+				return true;
 			}
 		}
 
-		auto end = std::chrono::high_resolution_clock::now();
-		return std::chrono::duration<double, std::milli>(end - start).count();
-	 }
+		return false;
+	}
+
+	int getWorldMouseX() {
+		return GetMouseX() + worldOffsetX;
+	}
+	int getWorldMouseY() {
+		return GetMouseY() + worldOffsetY;
+	}
+
 	void handleUserInput() {
 		// Add gate to the pixel x,y when clicking on an empty spot
 		if (GetMouse(0).bPressed) {
@@ -248,6 +350,16 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 		}
 
+		if (simulationState == SimulationState::STEP) {
+			simulationState = SimulationState::PAUSED;
+		}
+		else if (GetKey(olc::RIGHT).bPressed && simulationState == SimulationState::PAUSED) {
+			simulationState = SimulationState::STEP;
+		}
+		else if (GetKey(olc::SPACE).bPressed){
+			simulationState = ((simulationState == SimulationState::RUNNING) ? SimulationState::PAUSED : SimulationState::RUNNING);
+		}
+
 		if (GetKey(olc::K0).bPressed && GetKey(olc::SHIFT).bHeld) {
 			worldOffsetX = 0;
 			worldOffsetY = 0;
@@ -358,14 +470,16 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		// Change the chosen gate or chosen input when a number is pressed
 		if (state == State::PLACING_GATE) {
-			if (GetKey(olc::K1).bPressed) selectedType = GateType::OUTPUT;
+			if (GetKey(olc::K1).bPressed) selectedType = GateType::WIRE;
 			if (GetKey(olc::K2).bPressed) selectedType = GateType::INPUT;
 			if (GetKey(olc::K3).bPressed) selectedType = GateType::AND;
 			if (GetKey(olc::K4).bPressed) selectedType = GateType::XOR;
 			if (GetKey(olc::K5).bPressed) selectedType = GateType::OR;
 			if (GetKey(olc::K6).bPressed) selectedType = GateType::NOT;
+			if (GetKey(olc::K7).bPressed) selectedType = GateType::TIMER;
 		}
 		else if (state == State::DRAGGING_CONNECTION) {
+			// TODO: Add auto scroll when close to edges
 			if (GetKey(olc::K1).bPressed) inputIndex = 1;
 			if (GetKey(olc::K2).bPressed) inputIndex = 2;
 		}
@@ -391,7 +505,10 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 	}
 
-	double simulate(int steps) {
+	/*
+	 * Simulate the logic in the gates
+	*/
+	double simulate(int steps = 1) {
 		auto start = std::chrono::high_resolution_clock::now();
 
 		for (int i = 0; i < steps; i++) {
@@ -408,12 +525,10 @@ class CircuitGUI : public olc::PixelGameEngine {
 		return std::chrono::duration<double, std::milli>(end - start).count();
 	}
 
-	double draw() {
-		auto start = std::chrono::high_resolution_clock::now();
-
-		Clear(olc::WHITE);
-
-		// Draw all connections first
+	/*
+	 * Draw the gates, connections and items related to the current action
+	*/
+	void drawConnections() {
 		for (auto &gate : gates) {
 			for (auto &input : gate->inputs) {
 				if (auto input_ptr = input.lock()) {
@@ -429,15 +544,16 @@ class CircuitGUI : public olc::PixelGameEngine {
 						(dstMiddleY < 0 && srcMiddleY < 0) ||
 						(dstMiddleX > width && srcMiddleX > width) ||
 						(dstMiddleY > height && srcMiddleY > height)
-					) continue;
+						) continue;
 
 					olc::Pixel color = input_ptr->output ? olc::RED : olc::BLACK;
 					DrawLine(dstMiddleX, dstMiddleY, srcMiddleX, srcMiddleY, color);
 				}
 			}
 		}
+	}
 
-		// Then draw all gates with the first part of their name on them
+	void drawGates() {
 		for (auto &c : gates) {
 			int x = c->x - worldOffsetX;
 			int y = c->y - worldOffsetY;
@@ -448,22 +564,25 @@ class CircuitGUI : public olc::PixelGameEngine {
 			FillRect(x, y, size, size, color);
 			if (c->selected) {
 				DrawRect(x, y, size, size, olc::BLACK);
-				DrawRect(x+1, y+1, size-2, size-2, olc::BLACK);
+				DrawRect(x + 1, y + 1, size - 2, size - 2, olc::BLACK);
 			}
 
 			const std::string displayName = c->name.substr(0, c->name.find(" "));
 			int xOffset = (displayName.size() / 2.0) * 8;
 			DrawString(x + size / 2 - xOffset, y + size / 2 - 4, displayName, olc::BLACK);
 		}
+	}
 
-		// Draw current action string
+	void drawMisc() {
 		std::string stateString;
+
 		switch (state) {
+			// Constructing string with gate name if placing
 			case State::PLACING_GATE: {
 				stateString = "Placing ";
 				switch (selectedType) {
-				case GateType::OUTPUT:
-					stateString += "Output";
+				case GateType::WIRE:
+					stateString += "Wire";
 					break;
 				case GateType::AND:
 					stateString += "AND";
@@ -480,9 +599,13 @@ class CircuitGUI : public olc::PixelGameEngine {
 				case GateType::INPUT:
 					stateString += "Input";
 					break;
+				case GateType::TIMER:
+					stateString += "Timer";
+					break;
 				}
 				break;
 			}
+			// Drawing currently dragging connection
 			case State::DRAGGING_CONNECTION: {
 				auto ptr = clickedGate.lock();
 				DrawLine(ptr->x - worldOffsetX + size / 2, ptr->y - worldOffsetY + size / 2, GetMouseX(), GetMouseY(), olc::BLACK);
@@ -494,6 +617,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 				stateString = "Moving " + ptr->name;
 				break;
 			}
+			// Drawing a rectangle for the currently selected area
 			case State::SELECTING_AREA: {
 				int x = GetMouseX();
 				int y = GetMouseY();
@@ -515,97 +639,27 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		DrawString(5, 5, stateString, olc::BLACK, 2);
 
-		auto end = std::chrono::high_resolution_clock::now();
-		return std::chrono::duration<double, std::milli>(end - start).count();
+		std::string simulationStateString;
+		if (simulationState == SimulationState::RUNNING) {
+			simulationStateString += "RUNNING";
+		}
+		else {
+			simulationStateString += " PAUSED";
+		}
+		
+		DrawString(GetDrawTargetWidth()-122, 5, simulationStateString, olc::BLACK, 2);
 	}
 
-	double loadProject() {
+	double draw() {
 		auto start = std::chrono::high_resolution_clock::now();
 
-		std::ifstream saveFile("save.txt");
-		if (!saveFile.is_open()) return 0;
+		Clear(olc::WHITE);
 
-		std::array<char, 51> buffer;
-		std::fill(buffer.begin(), buffer.end(), 0);
+		drawConnections();
 
-		bool gatesDone = false;
-		std::string line;
-		while (std::getline(saveFile, line)) {
-			if (!gatesDone) {
-				if (line.front() == '-') {
-					gatesDone = true;
-					if (!gates.empty()) {
-						Component::GUID = gates.back()->id + 1;
-					}
-				}
-				else {
-					std::stringstream ss(line);
-					std::string token;
-					std::vector<std::string> result;
-					while (std::getline(ss, token, ',')) {
-						result.push_back(token);
-					}
+		drawGates();
 
-					if (result.size() > 5) {
-						std::cout << "Wrong structure in save file\n";
-					}
-					else {
-						uint64_t id = std::stoull(result[0]);
-						GateType type = static_cast<GateType>(std::stoi(result[1]));
-						bool output = std::stoi(result[2]);
-						int x = std::stoi(result[3]);
-						int y = std::stoi(result[4]);
-
-						gates.push_back(createComponent(type, "Test", x, y, id));
-						gates.back()->output = output;
-					}
-				}
-			}
-			else {
-				std::stringstream ss(line);
-				std::string token;
-				std::vector<std::string> result;
-				while (std::getline(ss, token, ',')) {
-					result.push_back(token);
-				}
-
-				if (result.size() > 3) {
-					std::cout << "Wrong structure in save file\n";
-				}
-				else {
-					uint64_t dstId = std::stoull(result[0]);
-					uint64_t srcId = std::stoull(result[1]);
-					int inputIndex = std::stoi(result[2]);
-
-					// TODO: Save srcGate since multiple inputs to the same 
-					// TODO: Search for the gates with binary search
-					std::shared_ptr<Component> srcGate;
-					std::shared_ptr<Component> dstGate;
-					bool srcFound = false, dstFound = false;
-					for (auto it = gates.begin(); it != gates.end() && !(srcFound && dstFound); it++) {
-						if (!srcFound) {
-							if ((*it)->id == srcId) {
-								srcGate = *it;
-								srcFound = true;
-							}
-						}
-						if (!dstFound) {
-							if ((*it)->id == dstId) {
-								dstGate = *it;
-								dstFound = true;
-							}
-						}
-					}
-
-					if (!srcFound || !dstFound) {
-						std::cout << "Gate not found when loading connections\n";
-					}
-					else {
-						dstGate->connectInput(srcGate, inputIndex);
-					}
-				}
-			}
-		}
+		drawMisc();
 
 		auto end = std::chrono::high_resolution_clock::now();
 		return std::chrono::duration<double, std::milli>(end - start).count();
@@ -633,7 +687,13 @@ public:
 		handleUserInput();
 
 		// Simulation update
-		double simulationTime = simulate(100);
+		double simulationTime = 0;
+		if (simulationState == SimulationState::RUNNING) {
+			simulationTime = simulate(speed);
+		}
+		else if (simulationState == SimulationState::STEP) {
+			simulationTime = simulate(1);
+		}
 
 		// Drawing
 		double drawTime = draw();
@@ -648,6 +708,7 @@ public:
 // TODO: Create copy and move assignment and constructor for component that updates the parent ptr to avoid having to store all components as ptrs
 // TODO: Sort by location to make collision detection faster
 // TODO: Use coordinates as id?
+// TODO: Decouple connection completely? storing each connection as input and output
 int main() {
 	CircuitGUI gui;
 	if (gui.Construct(1300, 1300, 1, 1)) {
