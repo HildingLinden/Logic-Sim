@@ -204,17 +204,17 @@ class CircuitGUI : public olc::PixelGameEngine {
 				
 				for (auto &gate : gates) {
 					if (deltaX < 0) {
-						if (gate->x > clickedX || gate->x < x) continue;
+						if (gate->x > clickedX || gate->x + size < x) continue;
 					}
 					else {
-						if (gate->x < clickedX || gate->x > x) continue;
+						if (gate->x + size < clickedX || gate->x > x) continue;
 					}
 
 					if (deltaY < 0) {
-						if (gate->y > clickedY || gate->y < y) continue;
+						if (gate->y > clickedY || gate->y + size < y) continue;
 					}
 					else {
-						if (gate->y < clickedY || gate->y > y) continue;
+						if (gate->y + size < clickedY || gate->y > y) continue;
 					}
 
 					selectedGates.push_back(gate);
