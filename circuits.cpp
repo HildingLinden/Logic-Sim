@@ -30,8 +30,8 @@ class CircuitGUI : public olc::PixelGameEngine {
 	State state = State::PLACING_GATE;
 	GateType selectedType = GateType::WIRE;
 	int inputIndex = 1;
-	int worldOffsetX = 0;
-	int worldOffsetY = 0;
+	float worldOffsetX = 0;
+	float worldOffsetY = 0;
 	SimulationState simulationState = SimulationState::PAUSED;
 	int speed = 1000;
 
@@ -222,7 +222,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 		return GetMouseY() + worldOffsetY;
 	}
 
-	void handleUserInput() {
+	void handleUserInput(float fElapsedTime) {
 		// Add gate to the pixel x,y when clicking on an empty spot
 		if (GetMouse(0).bPressed) {
 			clickedX = getWorldMouseX();
@@ -271,6 +271,60 @@ class CircuitGUI : public olc::PixelGameEngine {
 					state = State::SELECTING_AREA;
 				}
 			}
+		}
+
+		// Change the chosen gate or chosen input when a number is pressed
+		if (state == State::PLACING_GATE) {
+			if (GetKey(olc::K1).bPressed) selectedType = GateType::WIRE;
+			if (GetKey(olc::K2).bPressed) selectedType = GateType::INPUT;
+			if (GetKey(olc::K3).bPressed) selectedType = GateType::AND;
+			if (GetKey(olc::K4).bPressed) selectedType = GateType::XOR;
+			if (GetKey(olc::K5).bPressed) selectedType = GateType::OR;
+			if (GetKey(olc::K6).bPressed) selectedType = GateType::NOT;
+			if (GetKey(olc::K7).bPressed) selectedType = GateType::TIMER;
+		}
+		else if (state == State::DRAGGING_CONNECTION) {
+			const int x = GetMouseX();
+			const int y = GetMouseY();
+			const int moveSpeed = 500;
+			const int border = 30;
+
+			if (x < border) {
+				worldOffsetX -= moveSpeed * fElapsedTime;
+			}
+			else if (x > GetDrawTargetWidth() - border) {
+				worldOffsetX += moveSpeed * fElapsedTime;
+			}
+
+			if (y < border) {
+				worldOffsetY -= moveSpeed * fElapsedTime;
+			}
+			else if (y > GetDrawTargetHeight() - border) {
+				worldOffsetY += moveSpeed * fElapsedTime;
+			}
+
+			if (GetKey(olc::K1).bPressed) inputIndex = 1;
+			if (GetKey(olc::K2).bPressed) inputIndex = 2;
+		}
+		else if (state == State::DRAGGING_GATE) {
+			int deltaX = getWorldMouseX() - clickedX;
+			int deltaY = getWorldMouseY() - clickedY;
+
+			if (clickedGate.lock()->selected) {
+				for (auto &gate : selectedGates) {
+					auto ptr = gate.lock();
+					ptr->x += deltaX;
+					ptr->y += deltaY;
+				}
+			}
+			else {
+				auto ptr = clickedGate.lock();
+				ptr->x += deltaX;
+				ptr->y += deltaY;
+			}
+
+			clickedX = getWorldMouseX();
+			clickedY = getWorldMouseY();
 		}
 
 		// Connect gate where mouse is
@@ -469,42 +523,6 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 			selectedGates.clear();
 		}
-
-		// Change the chosen gate or chosen input when a number is pressed
-		if (state == State::PLACING_GATE) {
-			if (GetKey(olc::K1).bPressed) selectedType = GateType::WIRE;
-			if (GetKey(olc::K2).bPressed) selectedType = GateType::INPUT;
-			if (GetKey(olc::K3).bPressed) selectedType = GateType::AND;
-			if (GetKey(olc::K4).bPressed) selectedType = GateType::XOR;
-			if (GetKey(olc::K5).bPressed) selectedType = GateType::OR;
-			if (GetKey(olc::K6).bPressed) selectedType = GateType::NOT;
-			if (GetKey(olc::K7).bPressed) selectedType = GateType::TIMER;
-		}
-		else if (state == State::DRAGGING_CONNECTION) {
-			// TODO: Add auto scroll when close to edges
-			if (GetKey(olc::K1).bPressed) inputIndex = 1;
-			if (GetKey(olc::K2).bPressed) inputIndex = 2;
-		}
-		else if (state == State::DRAGGING_GATE) {
-			int deltaX = getWorldMouseX() - clickedX;
-			int deltaY = getWorldMouseY() - clickedY;
-
-			if (clickedGate.lock()->selected) {
-				for (auto &gate : selectedGates) {
-					auto ptr = gate.lock();
-					ptr->x += deltaX;
-					ptr->y += deltaY;
-				}
-			}
-			else {
-				auto ptr = clickedGate.lock();
-				ptr->x += deltaX;
-				ptr->y += deltaY;
-			}
-
-			clickedX = getWorldMouseX();
-			clickedY = getWorldMouseY();
-		}
 	}
 
 	/*
@@ -686,7 +704,7 @@ public:
 
 	bool OnUserUpdate(float fElapsedTime) override {
 		// User input
-		handleUserInput();
+		handleUserInput(fElapsedTime);
 
 		// Simulation update
 		double simulationTime = 0;
