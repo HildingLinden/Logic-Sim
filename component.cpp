@@ -2,27 +2,28 @@
 
 uint64_t Component::GUID = 1;
 
-Component::Component(std::string name, int x, int y, int numInputs, uint64_t id) : name(name), x(x), y(y), id(id) {
+Component::Component(std::string name, int x, int y, int numInputs, uint64_t id) : name(std::move(name)), x(x), y(y), id(id) {
 	inputs.resize(numInputs);
 }
 
-void Component::connectInput(std::shared_ptr<Component> &component, int index) {
+void Component::connectInput(std::shared_ptr<Component> &component, int index, std::vector<Point> connectionPoints) {
 	if (index+1 > inputs.size()) {
 		std::cout << name << " only has " << inputs.size() << " number of inputs" << std::endl;
 	}
 	else {
-		inputs[index] = component;
+		inputs[index].src = component;
+		inputs[index].points = connectionPoints;
 	}
 }
 
 // Derived class constructors and methods
-AND::AND(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
-XOR::XOR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
-OR::OR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 2, id) {}
-WIRE::WIRE(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) {}
-NOT::NOT(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 1, id) { output = true; newOutput = true; }
-Input::Input(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 0, id) { output = true; newOutput = true; }
-TIMER::TIMER(std::string name, int32_t x, int32_t y, uint64_t id) : Component(name, x, y, 0, id) {}
+AND::AND(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 2, id) {}
+XOR::XOR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 2, id) {}
+OR::OR(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 2, id) {}
+WIRE::WIRE(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 1, id) {}
+NOT::NOT(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 1, id) { output = true; newOutput = true; }
+Input::Input(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 0, id) { output = true; newOutput = true; }
+TIMER::TIMER(std::string name, int32_t x, int32_t y, uint64_t id) : Component(std::move(name), x, y, 0, id) {}
 
 GateType AND::getType() { return GateType::AND; }
 GateType XOR::getType() { return GateType::XOR; }
@@ -36,10 +37,10 @@ void AND::update() {
 	bool input1 = false;
 	bool input2 = false;
 
-	if (auto ptr = inputs[0].lock()) {
+	if (auto ptr = inputs[0].src.lock()) {
 		input1 = ptr->output;
 	}
-	if (auto ptr = inputs[1].lock()) {
+	if (auto ptr = inputs[1].src.lock()) {
 		input2 = ptr->output;
 	}
 
@@ -50,10 +51,10 @@ void XOR::update() {
 	bool input1 = false;
 	bool input2 = false;
 
-	if (auto ptr = inputs[0].lock()) {
+	if (auto ptr = inputs[0].src.lock()) {
 		input1 = ptr->output;
 	}
-	if (auto ptr = inputs[1].lock()) {
+	if (auto ptr = inputs[1].src.lock()) {
 		input2 = ptr->output;
 	}
 
@@ -64,10 +65,10 @@ void OR::update() {
 	bool input1 = false;
 	bool input2 = false;
 
-	if (auto ptr = inputs[0].lock()) {
+	if (auto ptr = inputs[0].src.lock()) {
 		input1 = ptr->output;
 	}
-	if (auto ptr = inputs[1].lock()) {
+	if (auto ptr = inputs[1].src.lock()) {
 		input2 = ptr->output;
 	}
 
@@ -77,7 +78,7 @@ void OR::update() {
 void WIRE::update() {
 	bool input1 = false;
 
-	if (auto ptr = inputs[0].lock()) {
+	if (auto ptr = inputs[0].src.lock()) {
 		input1 = ptr->output;
 	}
 
@@ -87,7 +88,7 @@ void WIRE::update() {
 void NOT::update() {
 	bool input1 = false;
 
-	if (auto ptr = inputs[0].lock()) {
+	if (auto ptr = inputs[0].src.lock()) {
 		input1 = ptr->output;
 	}
 
@@ -99,12 +100,15 @@ void Input::update() {
 }
 
 void TIMER::update() {
-	if (counter == 20) {
-		newOutput = true;
-		counter = 0;
-	}
-	else {
+	if (counter < 30) {
 		newOutput = false;
 		counter++;
+	}
+	else if (counter < 60) {
+		newOutput = true;
+		counter++;
+	}
+	else {
+		counter = 0;
 	}
 }

@@ -6,6 +6,18 @@
 #include <string_view>
 
 enum class GateType { AND, XOR, OR, WIRE, NOT, INPUT, TIMER };
+
+class Component;
+
+struct Point {
+	int x, y;
+};
+
+struct InputPath {
+	std::weak_ptr<Component> src;
+	std::vector<Point> points;
+};
+
 // Base class
 class Component {
 public:
@@ -15,14 +27,14 @@ public:
 	bool output = false;
 	bool newOutput = false;
 	bool selected = false;
-	std::vector<std::weak_ptr<Component>> inputs;
+	std::vector<InputPath> inputs;
 	const uint64_t id;
 	static uint64_t GUID;
 
 	Component(std::string name, int x, int y, int numInputs, uint64_t id);
 	virtual void update() = 0;
 	virtual GateType getType() = 0;
-	void connectInput(std::shared_ptr<Component> &component, int index);
+	void connectInput(std::shared_ptr<Component> &component, int index, std::vector<Point> connectionPoints);
 };
 
 // Derived classes

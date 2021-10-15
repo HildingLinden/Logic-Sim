@@ -3,7 +3,8 @@ Logic gate simulation with a graphical user interface.
 
 ## Controls
 Click on empty space to place gate  
-Click and drag on gate to connect it to another gate  
+Click and drag on gate to connect it to another gate, or click on an empty space  
+when dragging connection to place the path of the connection   
 Click and drag on empty space to select gates in an area  
 Hold shift, click and drag on a gate or a group of selected gates to move them  
 Hold shift, click and drag on an empty space to move the world around  
