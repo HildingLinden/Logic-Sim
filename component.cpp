@@ -102,15 +102,16 @@ void Input::update() {
 }
 
 void TIMER::update() {
-	if (counter < 30) {
+	if (counter < 15) {
 		newOutput = false;
 		counter++;
 	}
-	else if (counter < 60) {
+	else if (counter < 30) {
 		newOutput = true;
 		counter++;
 	}
 	else {
 		counter = 0;
+		newOutput = false;
 	}
 }
