@@ -1,7 +1,6 @@
 #include <chrono>
 #include <string>
 #include <vector>
-#include <format>
 #include <numeric>
 
 #include "component.h"
@@ -42,10 +41,6 @@ class CircuitGUI : public olc::PixelGameEngine {
 	int worldOffsetY = 0;
 	
 	std::chrono::steady_clock::time_point start = std::chrono::high_resolution_clock::now();
-
-	Point getPixelPoint(Point point) const {
-		return Point{ (point.x * tileSize) - worldOffsetX + GetDrawTargetWidth() / 2, (point.y * tileSize) - worldOffsetY + GetDrawTargetHeight() / 2 };
-	}
 
 	/*
 	 * Check the user input and perform the actions bound to the inputs
@@ -237,6 +232,129 @@ class CircuitGUI : public olc::PixelGameEngine {
 
 		return Point{ static_cast<int>(x), static_cast<int>(y) };
 	}
+
+	void handleUserInput() {
+		// Left mouse
+		if (GetMouse(0).bPressed) { mouseClicked(); }
+		if (GetMouse(0).bHeld) { mouseHeld(); }
+		if (GetMouse(0).bReleased) { mouseReleased(); }
+
+		// Right mouse
+		if (GetMouse(1).bPressed && state == State::PLACING_GATE) { toggleComponent(); }
+
+		// Middle mouse
+		if (GetMouse(2).bPressed && state == State::PLACING_GATE) { removeComponent(); }
+
+		zoom();
+
+		// Number keys
+		handleNumberInputs();
+
+		// Ctrl + shortcuts
+		if (GetKey(olc::A).bPressed && GetKey(olc::CTRL).bHeld) { selectAllComponents(); }
+
+		if (GetKey(olc::S).bPressed && GetKey(olc::CTRL).bHeld) { saveProject(); }
+
+		if (GetKey(olc::C).bPressed && GetKey(olc::CTRL).bHeld) { copySelected(); }
+
+		if (GetKey(olc::V).bPressed && GetKey(olc::CTRL).bHeld) { pasteComponents(); }
+
+		// Based on state
+		if (state == State::DRAGGING_CONNECTION) { autoPan(); }
+		if (state == State::DRAGGING_GATES) { moveComponents(); }
+
+		// Based on simulationState
+		if (simulationState == SimulationState::STEP || (simulationState == SimulationState::RUNNING && GetKey(olc::SPACE).bPressed)) { simulationState = SimulationState::PAUSED; }  // If simulationState is step change to pause since we only step once
+		else if (simulationState == SimulationState::PAUSED && GetKey(olc::RIGHT).bPressed) { simulationState = SimulationState::STEP; }
+		else if (simulationState == SimulationState::PAUSED && GetKey(olc::SPACE).bPressed) { simulationState = SimulationState::RUNNING; }
+
+		// Shift + shortcuts
+		if (GetKey(olc::K0).bPressed && GetKey(olc::SHIFT).bHeld) {
+			worldOffsetX = 0;
+			worldOffsetY = 0;
+		}
+
+		// Del
+		if (GetKey(olc::DEL).bPressed) { removeSelectedComponents(); }
+
+		if (GetKey(olc::ESCAPE).bPressed && state == State::DRAGGING_CONNECTION) {
+			state = State::PLACING_GATE;
+			connectionPoints.clear();
+			clickedPoint = getWorldMousePos();
+		}
+	}
+
+	void mouseHeld() {
+		if (state == State::PLACING_GATE) {
+			Point delta = getWorldMousePos() - clickedPoint;
+
+			if (GetKey(olc::SHIFT).bHeld) {
+				pan(Point{ delta.x * tileSize, delta.y * tileSize });
+				clickedPoint = getWorldMousePos();
+			}
+			else {
+				Point pixelDelta = Point{ GetMouseX(), GetMouseY() } - clickedPixelPoint;
+				if (std::abs(pixelDelta.x) > 5 || std::abs(pixelDelta.y) > 5) {
+					startSelectingArea();
+				}
+			}
+		}
+	}
+	void mouseReleased() {
+		if (state == State::DRAGGING_CONNECTION) {
+			std::weak_ptr<Component> gate;
+			if (checkCollision(gate, getWorldMousePos())) {
+				stopDraggingConnection(gate);
+			}
+		}
+		else if (state == State::PLACING_GATE && !GetKey(olc::CTRL).bHeld && !GetKey(olc::SHIFT).bHeld) {
+			placeGate();
+		}
+		else if (state == State::SELECTING_AREA) {
+			stopSelectingArea();
+		}
+		else if (state == State::DRAGGING_GATES) {
+			stopDraggingGate();
+		}
+	}
+	void mouseClicked() {
+		clickedPoint = getWorldMousePos();
+		clickedPixelPoint = Point{ GetMouseX(), GetMouseY() };
+
+		if (checkCollision(clickedGate, clickedPoint)) {
+			if (GetKey(olc::SHIFT).bHeld) {
+				startDraggingGate();
+			}
+			else if (GetKey(olc::CTRL).bHeld) {
+				toggleGateSelection();
+			}
+			else {
+				if (state != State::DRAGGING_CONNECTION) {
+					startDraggingConnection();
+				}
+			}
+		}
+		else if (state == State::DRAGGING_CONNECTION) {
+			addPointToConnectionPath();
+		}
+	}
+
+	void handleNumberInputs() {
+		if (state == State::PLACING_GATE) {
+			if (GetKey(olc::K1).bPressed) selectedType = GateType::WIRE;
+			if (GetKey(olc::K2).bPressed) selectedType = GateType::INPUT;
+			if (GetKey(olc::K3).bPressed) selectedType = GateType::AND;
+			if (GetKey(olc::K4).bPressed) selectedType = GateType::XOR;
+			if (GetKey(olc::K5).bPressed) selectedType = GateType::OR;
+			if (GetKey(olc::K6).bPressed) selectedType = GateType::NOT;
+			if (GetKey(olc::K7).bPressed) selectedType = GateType::TIMER;
+		}
+		else if (state == State::DRAGGING_CONNECTION) {
+			if (GetKey(olc::K1).bPressed) selectedInputIndex = 1;
+			if (GetKey(olc::K2).bPressed) selectedInputIndex = 2;
+		}
+	}
+
 	void copyComponents() {
 		for (auto &selectedGate : selectedGates) {
 			if (!selectedGate.expired()) {
@@ -298,10 +416,19 @@ class CircuitGUI : public olc::PixelGameEngine {
 		}
 		selectedGates.clear();
 
+		// Check for collisions on pasted positions
+		for (auto &gate : copiedGates) {
+			std::weak_ptr<Component> tmpGate;
+			if (checkCollision(tmpGate, gate.gate->position + delta)) {
+				std::cout << "Gate collision on paste\n";
+				return;
+			}
+		}
+
 		int prevGateCount = gates.size();
 		// Create of a new instance of the component 
 		for (auto &gate : copiedGates) {
-			gates.push_back(createComponent(gate.gate->getType(), "Copied test", Point{ gate.gate->position.x + delta.x, gate.gate->position.y + delta.y }));
+			gates.push_back(createComponent(gate.gate->getType(), "Copied test", gate.gate->position + delta));
 			gates.back()->output = gate.gate->output;
 
 			// Select each new instance of the gates
@@ -315,8 +442,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 				if (copiedGates[j].inputIndices[i] >= 0) {
 					auto newConnectionPath = copiedGates[j].gate->inputs[i].points;
 					for (auto &point : newConnectionPath) {
-						point.x += delta.x;
-						point.y += delta.y;
+						point = point + delta;
 					}
 					gates[prevGateCount + j]->connectInput(gates[prevGateCount + copiedGates[j].inputIndices[i]], i, std::move(newConnectionPath));
 				}
@@ -324,6 +450,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 		}
 	}
+
 	void removeComponent() {
 		std::weak_ptr<Component> gate;
 		if (checkCollision(gate, getWorldMousePos())) {
@@ -337,6 +464,18 @@ class CircuitGUI : public olc::PixelGameEngine {
 			}
 		}
 	}
+	void removeSelectedComponents() {
+		for (auto it = gates.begin(); it != gates.end();) {
+			if ((*it)->selected) {
+				it = gates.erase(it);
+			}
+			else {
+				it++;
+			}
+		}
+		selectedGates.clear();
+	}
+
 	void startDraggingConnection() {
 		connectionSrcGate = clickedGate;
 		state = State::DRAGGING_CONNECTION;
@@ -347,6 +486,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 	void startSelectingArea() {
 		state = State::SELECTING_AREA;
 	}
+
 	void stopDraggingConnection(std::weak_ptr<Component> &gate) {
 		auto ptr = gate.lock();
 		auto clickedPtr = connectionSrcGate.lock();
@@ -361,6 +501,22 @@ class CircuitGUI : public olc::PixelGameEngine {
 	void stopDraggingGate() {
 		state = State::PLACING_GATE;
 	}
+	void stopSelectingArea() {
+		// Deselect previously selected gates if ctrl is held
+		if (!GetKey(olc::CTRL).bHeld) {
+			for (auto &gate : selectedGates) {
+				if (!gate.expired()) {
+					gate.lock()->selected = false;
+				}
+			}
+			selectedGates.clear();
+		}
+
+		selectGatesInArea();
+
+		state = State::PLACING_GATE;
+	}
+
 	void selectGatesInArea() {
 		Point worldMousePos = getWorldMousePos();
 		Point delta = worldMousePos - clickedPoint;
@@ -384,20 +540,13 @@ class CircuitGUI : public olc::PixelGameEngine {
 			gate->selected = true;
 		}
 	}
-	void stopSelectingArea() {
-		// Deselect previously selected gates if ctrl is held
-		if (!GetKey(olc::CTRL).bHeld) {
-			for (auto &gate : selectedGates) {
-				if (!gate.expired()) {
-					gate.lock()->selected = false;
-				}
+	void selectAllComponents() {
+		for (auto &gate : gates) {
+			if (!gate->selected) {
+				selectedGates.push_back(gate);
+				gate->selected = true;
 			}
-			selectedGates.clear();
 		}
-
-		selectGatesInArea();
-
-		state = State::PLACING_GATE;
 	}
 	void toggleGateSelection() {
 		auto ptr = clickedGate.lock();
@@ -415,18 +564,12 @@ class CircuitGUI : public olc::PixelGameEngine {
 			ptr->selected = false;
 		}
 	}
+
 	void addPointToConnectionPath() {
 		connectionPoints.push_back(getConnectionLine());
 	}
-	void pan(Point delta) {
-		worldOffsetX -= delta.x;
-		worldOffsetY -= delta.y;
-	}
-	void placeGate() {
-		gates.push_back(createComponent(selectedType, "Test", getWorldMousePos()));
-	}
 	Point getConnectionLine() {
-		Point src{0,0};
+		Point src{ 0,0 };
 		if (connectionPoints.empty()) {
 			auto ptr = clickedGate.lock();
 			src = ptr->position;
@@ -440,62 +583,26 @@ class CircuitGUI : public olc::PixelGameEngine {
 		int deltaY = std::abs(src.y - worldMousePos.y);
 
 		if (deltaX > deltaY) {
-			return Point{ worldMousePos.x, src.y};
+			return Point{ worldMousePos.x, src.y };
 		}
 		else {
 			return Point{ src.x, worldMousePos.y };
 		}
 	}
-	void mouseClicked() {
-		clickedPoint = getWorldMousePos();
-		clickedPixelPoint = Point{ GetMouseX(), GetMouseY() };
 
-		if (checkCollision(clickedGate, clickedPoint)) {
-			if (GetKey(olc::SHIFT).bHeld) {
-				startDraggingGate();
-			}
-			else if (GetKey(olc::CTRL).bHeld) {
-				toggleGateSelection();
-			}
-			else {
-				if (state != State::DRAGGING_CONNECTION) {
-					startDraggingConnection();
-				}
-			}
-		}
-		else if (state == State::DRAGGING_CONNECTION) {
-			addPointToConnectionPath();
-		}
+	void pan(Point delta) {
+		worldOffsetX -= delta.x;
+		worldOffsetY -= delta.y;
 	}
-	void moveComponent() {
-		Point delta = getWorldMousePos() - clickedPoint;
 
-		// Move all selected components and their connection paths if the component that is clicked is also selected
-		if (clickedGate.lock()->selected) {
-			for (auto &gate : selectedGates) {
-				if (auto ptr = gate.lock()) {
-					ptr->position = ptr->position + delta;
-
-					// Move each point of the connection
-					for (auto &input : ptr->inputs) {
-						if (auto srcPtr = input.src.lock()) {
-							if (srcPtr->selected) {
-								for (auto &point : input.points) {
-									point = point + delta;
-								}
-							}
-						}
-					}
-				}
-			}
+	void placeGate() {
+		std::weak_ptr<Component> gate;
+		if (!checkCollision(gate, getWorldMousePos())) {
+			gates.push_back(createComponent(selectedType, "Test", getWorldMousePos()));
 		}
-		// Else just move the clicked component
 		else {
-			auto ptr = clickedGate.lock();
-			ptr->position = ptr->position + delta;
+			std::cout << "Space already occupied by component\n";
 		}
-
-		clickedPoint = getWorldMousePos();
 	}
 	void autoPan() {
 		const int x = GetMouseX();
@@ -517,39 +624,62 @@ class CircuitGUI : public olc::PixelGameEngine {
 			worldOffsetY += static_cast<int>(moveSpeed * fElapsedTime);
 		}
 	}
-	void mouseHeld() {
-		if (state == State::PLACING_GATE) {
-			Point delta = getWorldMousePos() - clickedPoint;
 
-			if (GetKey(olc::SHIFT).bHeld) {
-				pan(Point{ delta.x * tileSize, delta.y * tileSize });
-				clickedPoint = getWorldMousePos();
-			}
-			else {
-				Point pixelDelta = Point{ GetMouseX(), GetMouseY() } - clickedPixelPoint;
-				if (std::abs(pixelDelta.x) > 5 || std::abs(pixelDelta.y) > 5) {
-					startSelectingArea();
+	void moveComponent(std::shared_ptr<Component> &gate, Point delta) {
+		gate->position = gate->position + delta;
+
+		if (clickedGate.lock()->selected) {
+			// Move each point of the connection
+			for (auto &input : gate->inputs) {
+				if (auto srcPtr = input.src.lock()) {
+					if (srcPtr->selected) {
+						for (auto &point : input.points) {
+							point = point + delta;
+						}
+					}
 				}
 			}
 		}
 	}
-	void mouseReleased() {
-		if (state == State::DRAGGING_CONNECTION) {
-			std::weak_ptr<Component> gate;
-			if (checkCollision(gate, getWorldMousePos())) {
-				stopDraggingConnection(gate);
+	void moveComponents() {
+		Point delta = getWorldMousePos() - clickedPoint;
+
+		std::weak_ptr<Component> tmpGate;
+		bool collision = false;
+
+		// Move all selected gates if the clicked gate was selected
+		if (clickedGate.lock()->selected) {
+			// Check if any of the selected gates collide after move
+			for (auto &gate : selectedGates) {
+				if (auto ptr = gate.lock()) {
+					if (checkCollision(tmpGate, getWorldMousePos())) {
+						// If both colliding gates are selected then there is no collision after the move since both move
+						if (!tmpGate.lock()->selected) {
+							collision = true;
+							break;
+						}
+					}
+				}
+			}
+
+			// Move all selected gates if there was no collition
+			if (!collision) {
+				for (auto &gate : selectedGates) {
+					moveComponent(gate.lock(), delta);
+				}
+				clickedPoint = getWorldMousePos();
 			}
 		}
-		else if (state == State::PLACING_GATE && !GetKey(olc::CTRL).bHeld && !GetKey(olc::SHIFT).bHeld) {
-			placeGate();
-		}
-		else if (state == State::SELECTING_AREA) {
-			stopSelectingArea();
-		}
-		else if (state == State::DRAGGING_GATES) {
-			stopDraggingGate();
+		// Else just move the clicked component
+		else {
+			auto ptr = clickedGate.lock();
+			if (!checkCollision(tmpGate, getWorldMousePos())) {
+				moveComponent(ptr, delta);
+				clickedPoint = getWorldMousePos();
+			}
 		}
 	}
+
 	void toggleComponent() {
 		std::weak_ptr<Component> gate;
 		if (checkCollision(gate, getWorldMousePos())) {
@@ -557,39 +687,7 @@ class CircuitGUI : public olc::PixelGameEngine {
 			ptr->output = !ptr->output;
 		}
 	}
-	void selectAllComponents() {
-		for (auto &gate : gates) {
-			if (!gate->selected) {
-				selectedGates.push_back(gate);
-				gate->selected = true;
-			}
-		}
-	}
-	void handleNumberInputs() {
-		if (state == State::PLACING_GATE) {
-			if (GetKey(olc::K1).bPressed) selectedType = GateType::WIRE;
-			if (GetKey(olc::K2).bPressed) selectedType = GateType::INPUT;
-			if (GetKey(olc::K3).bPressed) selectedType = GateType::AND;
-			if (GetKey(olc::K4).bPressed) selectedType = GateType::XOR;
-			if (GetKey(olc::K5).bPressed) selectedType = GateType::OR;
-			if (GetKey(olc::K6).bPressed) selectedType = GateType::NOT;
-			if (GetKey(olc::K7).bPressed) selectedType = GateType::TIMER;
-		} else if (state == State::DRAGGING_CONNECTION) {
-			if (GetKey(olc::K1).bPressed) selectedInputIndex = 1;
-			if (GetKey(olc::K2).bPressed) selectedInputIndex = 2;
-		}
-	}
-	void removeSelectedComponents() {
-		for (auto it = gates.begin(); it != gates.end();) {
-			if ((*it)->selected) {
-				it = gates.erase(it);
-			}
-			else {
-				it++;
-			}
-		}
-		selectedGates.clear();
-	}
+
 	void zoom() {
 		if (GetMouseWheel() < 0) {
 			if (tileSize > 1) {
@@ -602,56 +700,6 @@ class CircuitGUI : public olc::PixelGameEngine {
 			tileSize *= 2;
 			worldOffsetX *= 2;
 			worldOffsetY *= 2;
-		}
-	}
-	void handleUserInput() {
-		// Left mouse
-		if (GetMouse(0).bPressed) { mouseClicked(); }
-		if (GetMouse(0).bHeld) { mouseHeld(); }
-		if (GetMouse(0).bReleased) { mouseReleased(); }
-
-		// Right mouse
-		if (GetMouse(1).bPressed && state == State::PLACING_GATE) { toggleComponent(); }
-
-		// Middle mouse
-		if (GetMouse(2).bPressed && state == State::PLACING_GATE) { removeComponent(); }
-
-		zoom();
-
-		// Number keys
-		handleNumberInputs();
-
-		// Ctrl + shortcuts
-		if (GetKey(olc::A).bPressed && GetKey(olc::CTRL).bHeld) { selectAllComponents(); }
-
-		if (GetKey(olc::S).bPressed && GetKey(olc::CTRL).bHeld) { saveProject(); }
-
-		if (GetKey(olc::C).bPressed && GetKey(olc::CTRL).bHeld) { copySelected(); }
-
-		if (GetKey(olc::V).bPressed && GetKey(olc::CTRL).bHeld) { pasteComponents(); }
-
-		// Based on state
-		if (state == State::DRAGGING_CONNECTION) { autoPan(); }
-		if (state == State::DRAGGING_GATES) { moveComponent(); }
-
-		// Based on simulationState
-		if (simulationState == SimulationState::STEP || (simulationState == SimulationState::RUNNING && GetKey(olc::SPACE).bPressed)) { simulationState = SimulationState::PAUSED; }  // If simulationState is step change to pause since we only step once
-		else if (simulationState == SimulationState::PAUSED && GetKey(olc::RIGHT).bPressed) { simulationState = SimulationState::STEP; }
-		else if (simulationState == SimulationState::PAUSED && GetKey(olc::SPACE).bPressed) { simulationState = SimulationState::RUNNING; }
-
-		// Shift + shortcuts
-		if (GetKey(olc::K0).bPressed && GetKey(olc::SHIFT).bHeld) {
-			worldOffsetX = 0;
-			worldOffsetY = 0;
-		}
-
-		// Del
-		if (GetKey(olc::DEL).bPressed) { removeSelectedComponents(); }
-
-		if (GetKey(olc::ESCAPE).bPressed && state == State::DRAGGING_CONNECTION) {
-			state = State::PLACING_GATE;
-			connectionPoints.clear();
-			clickedPoint = getWorldMousePos();
 		}
 	}
 
@@ -688,6 +736,9 @@ class CircuitGUI : public olc::PixelGameEngine {
 		bool top = src.y > height && dst.y > height;
 
 		return !(left || right || top || bottom);
+	}
+	Point getPixelPoint(Point point) const {
+		return Point{ (point.x * tileSize) - worldOffsetX + GetDrawTargetWidth() / 2, (point.y * tileSize) - worldOffsetY + GetDrawTargetHeight() / 2 };
 	}
 	// TODO: Add culling
 	void drawConnectionPath(Point src, const Point &finalDst, const std::vector<Point> &points, olc::Pixel color) {
@@ -869,7 +920,7 @@ public:
 // TODO: Decouple connection completely? storing each connection as input and output
 int main() {
 	CircuitGUI gui;
-	if (gui.Construct(1280, 1280, 1, 1)) {
+	if (gui.Construct(1280, 960, 1, 1)) {
 		gui.Start();
 	}
 	return 0;

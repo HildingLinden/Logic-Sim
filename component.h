@@ -16,19 +16,19 @@ public:
 };
 
 inline Point operator-(const Point &u, const Point &v) {
-	return Point(u.x - v.x, u.y - v.y);
+	return Point{ u.x - v.x, u.y - v.y };
 }
 
 inline Point operator-(const Point &u, const int v) {
-	return Point(u.x - v, u.y - v);
+	return Point{ u.x - v, u.y - v };
 }
 
 inline Point operator+(const Point &u, const Point &v) {
-	return Point(u.x + v.x, u.y + v.y);
+	return Point{ u.x + v.x, u.y + v.y };
 }
 
 inline Point operator+(const Point &u, const int v) {
-	return Point(u.x + v, u.y + v);
+	return Point{ u.x + v, u.y + v };
 }
 
 struct InputPath {
